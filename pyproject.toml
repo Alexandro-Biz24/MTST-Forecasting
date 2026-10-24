@@ -10,6 +10,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Alexandro Bizeul" }]
+[project.urls]
+Homepage = "https://github.com/TON_USERNAME/MTST-Forecasting"
+Repository = "https://github.com/TON_USERNAME/MTST-Forecasting"
+
 keywords = ["time-series", "forecasting", "transformer", "pytorch", "multi-resolution"]
 classifiers = [
     "Programming Language :: Python :: 3",
