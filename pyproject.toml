@@ -11,8 +11,8 @@ requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Alexandro Bizeul" }]
 [project.urls]
-Homepage = "https://github.com/TON_USERNAME/MTST-Forecasting"
-Repository = "https://github.com/TON_USERNAME/MTST-Forecasting"
+Homepage = "https://github.com/Alexandro-Biz24"
+Repository = "https://github.com/Alexandro-Biz24/MTST-Forecasting/tree/main"
 
 keywords = ["time-series", "forecasting", "transformer", "pytorch", "multi-resolution"]
 classifiers = [
