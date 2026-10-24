@@ -97,6 +97,33 @@ python -m twine check dist/*
 
 This library is an independent PyTorch implementation inspired by multi-resolution forecasting research. Add the exact bibliographic reference to the relevant AISTATS 2024 paper and clearly document differences before publication. The repository is not claimed to be the authors' official implementation.
 
+## Package Information
+
+MTST Forecasting is an open-source PyTorch library for configurable multi-resolution time series forecasting.
+
+You can retrieve the installed package version and author directly in Python:
+
+```python
+import mtst
+
+print(mtst.__version__)
+print(mtst.__author__)
+```
+
+Additional package metadata can be accessed using:
+
+```python
+from importlib.metadata import metadata
+
+info = metadata("mtst-forecasting")
+
+print("Package:", info["Name"])
+print("Version:", info["Version"])
+print("Author:", info["Author"])
+```
+
+For source code, documentation, and contributions, visit the GitHub repository linked in the package metadata.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
