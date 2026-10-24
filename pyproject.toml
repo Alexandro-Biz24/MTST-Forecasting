@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtst-forecasting"
+version = "0.1.0"
+description = "Configurable multi-resolution time series Transformer for PyTorch"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "MTST contributors" }]
+keywords = ["time-series", "forecasting", "transformer", "pytorch", "multi-resolution"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["torch>=2.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1", "twine>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mtst*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
