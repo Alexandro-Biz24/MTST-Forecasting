@@ -1,6 +1,7 @@
 """Outils d'entraînement et de prédiction du forecaster MTST."""
 
 import copy
+import time
 from pathlib import Path
 
 import torch
@@ -53,39 +54,103 @@ def _dataset(model, X, y, mask=None):
     return TensorDataset(X.cpu(), y.cpu(), mask.cpu())
 
 
+def _synchronize(device):
+    """Synchronize asynchronous accelerator operations for accurate timings."""
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    elif device.type == "mps":
+        torch.mps.synchronize()
+
+
+def _rte_load_mape(pred, target, mask, xb, options):
+    """Masked MAPE in physical MW, matching the original RTE notebook.
+
+    X and y must contain the *scaled* feature and residual target values.
+    Options: feature_index, x_mean, x_scale, y_mean, y_scale.
+    """
+    required = {"feature_index", "x_mean", "x_scale", "y_mean", "y_scale"}
+    missing = required - options.keys()
+    if missing:
+        raise ValueError(f"rte_mape missing loss_kwargs: {sorted(missing)}")
+    index = options["feature_index"]
+    if not isinstance(index, int) or not (0 <= index < xb.shape[-1]):
+        raise ValueError("feature_index must index an input feature")
+    if pred.shape != target.shape or pred.ndim != 2 or pred.shape[1] != xb.shape[1]:
+        raise ValueError("rte_mape requires X: (B,T,F) and y/pred: (B,T)")
+    baseline = xb[:, :, index] * options["x_scale"] + options["x_mean"]
+    prediction_mw = baseline + pred * options["y_scale"] + options["y_mean"]
+    target_mw = baseline + target * options["y_scale"] + options["y_mean"]
+    return (((prediction_mw - target_mw).abs() / target_mw.abs().clamp(min=1))
+            * (mask > 0).to(pred.dtype)).sum() / (mask > 0).sum().clamp(min=1)
+
+
 def fit_model(model, X, y, *, mask=None, epochs=30, batch_size=32,
               lr=1e-3, loss="mse", loss_kwargs=None, device="auto",
-              shuffle=False, weight_decay=1e-5, verbose=True):
-    """Entraîne sur des données déjà préparées. Retourne la liste des losses."""
+              shuffle=False, weight_decay=1e-5, verbose=True,
+              log_every=0):
+    """Train on prepared tensors and return one training loss per epoch.
+
+    log_every=0 prints at epoch boundaries. Set log_every=10 to see batch
+    progress every 10 batches (including the first and last batch).
+    Use loss='rte_mape' with loss_kwargs to match RTE residual training
+    in physical MW; returned values are fractions, not percentages.
+    """
     if epochs < 1 or batch_size < 1:
         raise ValueError("epochs et batch_size doivent être positifs")
+    if not isinstance(log_every, int) or log_every < 0:
+        raise ValueError("log_every must be a nonnegative integer")
+    start_total = time.perf_counter()
+    if verbose:
+        print("Preparing dataset...", flush=True)
     dataset = _dataset(model, X, y, mask)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     target_device = resolve_device(device)
     model.to(target_device)
-    criterion = get_loss(loss, **(loss_kwargs or {})).to(target_device)
+    opts = loss_kwargs or {}
+    rte_mape = isinstance(loss, str) and loss.lower() == "rte_mape"
+    criterion = None if rte_mape else get_loss(loss, **opts).to(target_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     history = []
 
+    if verbose:
+        print(f"Training started | loss={loss} | epochs={epochs} | "
+              f"batches/epoch={len(loader)} | device={target_device}", flush=True)
+
     for epoch in range(epochs):
+        _synchronize(target_device)
+        start_epoch = time.perf_counter()
         model.train()
         weighted_loss, valid_count = 0.0, 0.0
-        for xb, yb, mb in loader:
+        for batch_index, (xb, yb, mb) in enumerate(loader, 1):
             xb, yb, mb = xb.to(target_device), yb.to(target_device), mb.to(target_device)
             optimizer.zero_grad(set_to_none=True)
             pred = model(xb)
-            batch_loss = criterion(pred, yb, mb)
-            if not torch.isfinite(batch_loss):
+            batch_loss = (_rte_load_mape(pred, yb, mb, xb, opts) if rte_mape
+                          else criterion(pred, yb, mb))
+            if not torch.isfinite(batch_loss).item():
                 raise FloatingPointError("Loss non finie")
             batch_loss.backward()
             optimizer.step()
             count = mb.gt(0).sum().item()
             weighted_loss += batch_loss.detach().item() * count
             valid_count += count
+            if verbose and log_every and (batch_index == 1 or batch_index % log_every == 0
+                                          or batch_index == len(loader)):
+                _synchronize(target_device)
+                print(f"Epoch {epoch+1:02d}/{epochs} | Batch {batch_index}/{len(loader)} "
+                      f"| {str(loss).upper()}: {batch_loss.item():.6f} "
+                      f"| elapsed: {time.perf_counter()-start_epoch:.1f}s", flush=True)
         epoch_loss = weighted_loss / max(valid_count, 1)
         history.append(epoch_loss)
+        _synchronize(target_device)
         if verbose:
-            print(f"Epoch {epoch + 1:02d}/{epochs} | Loss: {epoch_loss:.6f}")
+            print(f"Epoch {epoch+1:02d}/{epochs} | {str(loss).upper()}: "
+                  f"{epoch_loss:.6f} | time: {time.perf_counter()-start_epoch:.2f}s",
+                  flush=True)
+    _synchronize(target_device)
+    if verbose:
+        print(f"Training completed | {str(loss).upper()}: {history[-1]:.6f} "
+              f"| total: {(time.perf_counter()-start_total)/60:.2f} min", flush=True)
     return history
 
 

@@ -22,8 +22,8 @@ class MTST_full(nn.Module):
 
     def __init__(self, input_dim, embed_dim=64, heads=10, dropout=0.1, n_layers=5, output_len=24, max_len=5000, positional_encoding="both"):
         super().__init__()
-        if positional_encoding not in ("both", "relative"):
-            raise ValueError("positional_encoding must be both or relative")
+        if positional_encoding not in ("absolute", "both", "relative"):
+            raise ValueError("positional_encoding must be absolute, both or relative")
         self.positional_encoding = positional_encoding
         self.value_encoder = ValueEncoder(input_dim, embed_dim)
         self.pe_high = PositionalEncoder(embed_dim, max_len)
@@ -31,9 +31,10 @@ class MTST_full(nn.Module):
         self.pe_low = PositionalEncoder(embed_dim, max_len)
         self.output_len = output_len
         self.input_dim = input_dim
-        self.transformer_high_res = CustomTransformerEncoder(embed_dim, heads, dropout, n_layers)
-        self.transformer_mid_res = CustomTransformerEncoder(embed_dim, heads, dropout, n_layers)
-        self.transformer_low_res = CustomTransformerEncoder(embed_dim, heads, dropout, n_layers)
+        encoder_cls = TransformerBlock if positional_encoding == "absolute" else CustomTransformerEncoder
+        self.transformer_high_res = encoder_cls(embed_dim, heads, dropout, n_layers)
+        self.transformer_mid_res = encoder_cls(embed_dim, heads, dropout, n_layers)
+        self.transformer_low_res = encoder_cls(embed_dim, heads, dropout, n_layers)
         self.fusion_layer = nn.Linear(embed_dim * 3, embed_dim)
         self.linear1 = nn.Linear(embed_dim, embed_dim)
         self.linear2 = nn.Linear(embed_dim, output_len * input_dim)
@@ -77,7 +78,7 @@ class MTST_full(nn.Module):
                 torch.Tensor: Processed tensor of shape (batch_size, seq_len, embed_dim).
             """
             xr = self.value_encoder(xr)
-            if self.positional_encoding == "both":
+            if self.positional_encoding in ("absolute", "both"):
                 xr = positional_encoder(xr)
             xr = transformer(xr)
             return xr
